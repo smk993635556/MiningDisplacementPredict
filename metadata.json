@@ -1,0 +1,6 @@
+{
+  "name": "采动覆岩运移与地表沉陷耦合预计平台",
+  "description": "基于主关键层破断下沉场与地表移动二重积分分离等价算法的采动覆岩运移—地表沉陷耦合预计系统",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

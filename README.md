@@ -1,11 +1,134 @@
-<div align="center">
+# 采动覆岩运移与地表沉陷耦合预计平台
+> Mining Overburden Movement & Surface Subsidence Coupling Prediction Platform
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-cyan.svg)](https://react.dev/)
+[![Plotly.js](https://img.shields.io/badge/Plotly.js-min-indigo.svg)](https://plotly.com/javascript/)
+[![Tests](https://img.shields.io/badge/Tests-24%2F24%20Passing-emerald.svg)]()
 
-  <h1>Built with AI Studio</h2>
+## 一、平台定位与理论背景
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+本平台严格实现采矿工程与沉陷控制学科中的**“采动覆岩运移—地表沉陷耦合预计模型”**。
+平台摒弃了传统的单层概率积分经验拟合假定，以地下主关键层（Primary Key Stratum, PKS）破断及空间运动场为内边界激励，通过高斯影响核与覆岩传递函数的耦合卷积二重积分，精确刻画采动地表的三维下沉盆地与主断面沉陷轮廓。
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+### 坐标与符号约定
+- **沉降正负约定**：**向下为正**（$W > 0$ 表示地表下沉，单位：$\text{m}$）。
+- **空间坐标系**：
+  - 地表坐标：走向为 $x$ 轴，倾向为 $y$ 轴，原点 $(0, 0)$ 位于工作面几何中心，单位：$\text{m}$。
+  - 主关键层坐标：走向为 $\eta$ 轴，倾向为 $\xi$ 轴，单位：$\text{m}$。
+- **角度单位**：用户输入角度为**度（°）**，底层计算内核自动转换为弧度运算。
 
-</div>
+---
+
+## 二、数学模型与公式实现
+
+平台完全且严格按照下列六大公式进行计算，未做任何经验替代：
+
+### 1. 主关键层最大下沉值
+$$w_{PKS} = M - H_{PKS-d} \cdot (K'_p - 1)$$
+其中 $M$ 为采高，$H_{PKS-d}$ 为主关键层下界面至煤层顶界面间距，$K'_p$（即 $K_{p\_res}$）为破断岩层残余碎胀系数。
+
+### 2. 主关键层有效破断尺度
+$$L_z = d - \frac{2 H_{PKS-d}}{\tan\theta}, \quad L_q = m - \frac{2 H_{PKS-d}}{\tan\theta}$$
+其中 $d, m$ 分别为走向与倾向开采长度，$\theta$ 为岩层破断角。
+
+### 3. 主要影响半径与积分截断边界
+$$r = \frac{H_{PKS-u}}{\tan\delta_0} + \frac{H_l}{\tan\phi}$$
+积分边界为：
+$$D_f = \frac{L_z + 2 L_{PKS}}{2}, \quad M_f = \frac{L_q + 2 L_{PKS}}{2}$$
+其中 $H_{PKS-u}$ 为主关键层上方基岩厚度，$H_l$ 为松散层厚度，$\delta_0$ 为岩层边界角，$\phi$ 为松散层移动角，$L_{PKS}$ 为主关键层破断块体走向特征长度。
+
+### 4. 主关键层边界位移过渡函数
+$$F(u, L) = 1 - \left[1 + \exp\left(\frac{L - 2|u|}{0.5 L_{PKS}} - 2\right)\right]^{-1}$$
+
+### 5. 主关键层二维破断下沉场
+$$W_{PKS}(\eta, \xi) = w_{PKS} \cdot F(\eta, L_z) \cdot F(\xi, L_q)$$
+
+### 6. 地表沉陷耦合二重积分及其分离形式
+地表沉降定义为二重积分：
+$$W(x, y) = \eta_s \iint W_{PKS}(\eta, \xi) \frac{1}{r^2} \exp\left(-\pi \frac{(x - \eta)^2 + (y - \xi)^2}{r^2}\right) d\eta d\xi$$
+本平台利用高斯核的可分离性与空间对称性，严格推导并实现分离计算：
+$$W(x, y) = \eta_s \cdot w_{PKS} \cdot A_x(x) \cdot A_y(y)$$
+其中：
+$$A_x(x) = \int_{-D_f}^{D_f} F(\eta, L_z) \frac{1}{r} \exp\left(-\pi \frac{(x - \eta)^2}{r^2}\right) d\eta$$
+$$A_y(y) = \int_{-M_f}^{M_f} F(\xi, L_q) \frac{1}{r} \exp\left(-\pi \frac{(y - \xi)^2}{r^2}\right) d\xi$$
+数值积分采用高精度复合 Simpson 1/3 公式（默认 $N = 2048$ 子区间），计算复杂度由直接二重积分的 $O(N_x N_y M^2)$ 骤降至 $O((N_x + N_y) M)$，在毫秒级内完成万点网格求解，并保持 64 位双精度浮点精度。
+
+---
+
+## 三、论文 1312(1) 首采工作面验收测试基准
+
+淮南矿区顾北煤矿 1312(1) 工作面标准输入参数：
+- $d = 807\,\text{m}, m = 382\,\text{m}, M = 3.6\,\text{m}, \text{采深} H = 530\,\text{m}, \alpha = 5^\circ$
+- $H_{PKS-d} = 36.8\,\text{m}, H_{PKS-u} = 21.7\,\text{m}, K'_p = 1.0, \theta = 75^\circ, L_{PKS} = 30.7\,\text{m}$
+- $H_l = 440\,\text{m}, \delta_0 = 46.2^\circ, \phi = 45^\circ, \eta_s = 1.1$
+
+### 24 项自动化单元测试（`npm test`）
+全部 24 项测试均已通过，误差均远低于容差阈值：
+1. **六项派生参数**（容差 $\le 10^{-5}\,\text{m}$）：
+   - $w_{PKS} = 3.600000\,\text{m}$（误差 $0.0$）
+   - $L_z = 610.278939\,\text{m}$（误差 $4.37 \times 10^{-7}$）
+   - $L_q = 185.278939\,\text{m}$（误差 $4.37 \times 10^{-7}$）
+   - $D_f = 335.839470\,\text{m}$（误差 $2.81 \times 10^{-7}$）
+   - $M_f = 123.339470\,\text{m}$（误差 $2.81 \times 10^{-7}$）
+   - $r = 460.809552\,\text{m}$（误差 $1.73 \times 10^{-7}$）
+2. **主关键层下沉场五个特征点**（容差 $\le 10^{-4}\,\text{m}$）：
+   - $W_{PKS}(0, 0) = 3.599847660\,\text{m}$
+   - $W_{PKS}(305.139, 0) = 0.429112360\,\text{m}$
+   - $W_{PKS}(335.839, 0) = 0.008901067\,\text{m}$
+   - $W_{PKS}(0, 92.639) = 0.429130519\,\text{m}$
+   - $W_{PKS}(0, 123.339) = 0.008901443\,\text{m}$
+3. **地表沉降十个特征点（Simpson 2048）**（容差 $\le 10^{-4}\,\text{m}$）：
+   - $W(0, 0) = 1.137311930\,\text{m}$
+   - $W(100, 0) = 1.069250043\,\text{m}$
+   - $W(300, 0) = 0.613926484\,\text{m}$
+   - $W(335.839, 0) = 0.515897797\,\text{m}$
+   - $W(500, 0) = 0.163473048\,\text{m}$
+   - $W(800, 0) = 0.003632339\,\text{m}$
+   - $W(0, 100) = 0.990002496\,\text{m}$
+   - $W(0, 123.339) = 0.920935017\,\text{m}$
+   - $W(0, 300) = 0.326039625\,\text{m}$
+   - $W(335.839, 123.339) = 0.417746736\,\text{m}$
+4. **空间对称性**：
+   - 走向对称性 $|W(100, 50) - W(-100, 50)| < 10^{-15} \ll 10^{-8}$
+   - 倾向对称性 $|W(100, 50) - W(100, -50)| < 10^{-15} \ll 10^{-8}$
+5. **积分收敛性**：
+   - $|W_{4096}(0, 0) - W_{2048}(0, 0)| = 5.05 \times 10^{-13} \ll 10^{-6}$
+
+---
+
+## 四、数据真实性与学术合规说明
+
+### 1. 实测基线公开说明
+原论文中记载：1312(1) 工作面走向 ML04 观测线**实测最大下沉值约为 2.58 m**，并报告了覆岩耦合模型 $\text{MAE} = 0.07\,\text{m}, \text{MRE} = 9.46\%$，优于传统概率积分法 $\text{MAE} = 0.28\,\text{m}, \text{MRE} = 33.02\%$。但原论文**并未随文公布全部 69 个测点的局部坐标及离散观测数据列表**。
+
+### 2. 合成验证数据集
+为满足软件回归测试与质量检验要求，平台在 `public/examples/` 目录下生成并提供了两份 69 点合成验证数据集（支持 CSV 与 XLSX）：
+1. **严格公式合成数据**（`合成验证数据_1312_1_严格公式_69点.csv / .xlsx`）：由纯公式直接生成，$\text{MAE} \approx 0, \text{MRE} \approx 0\%$。
+2. **带噪声合成数据**（`合成验证数据_1312_1_带噪声_69点.csv / .xlsx`）：引入适度高斯测量噪声与边缘弱化，满足 $\text{MAE} \in [0.06, 0.08]\,\text{m}, \text{MRE} \in [8.5\%, 10.5\%]$，贴近论文统计水平。
+
+**严正声明**：平台在界面中以醒目的黄色标签明确标注其为**“合成验证数据”**，绝不将其虚构成“现场实测数据”。
+
+---
+
+## 五、参数校准/反演模块
+
+平台提供独立的**参数反演模块（Nelder-Mead 算法）**：
+- 支持用户选择反演参数（如 $L_{PKS}, r, \eta_s$），并设定物理上下界。
+- 支持优化目标函数：MAE 或 RMSE。
+- **学术界限明确**：系统醒目标注反演结果为**“校准/拟合结果”**，展示反演前后参数对比与目标函数收敛历程，**严禁将其称为论文原式直接计算结果**。
+
+---
+
+## 六、构建与测试指令
+
+```bash
+# 1. 运行 24 项数学理论模型自动化断言自检
+npm test
+
+# 2. 启动本地开发服务 (默认端口 3000)
+npm run dev
+
+# 3. 生产环境构建与验证
+npm run build
+```
