@@ -16,8 +16,9 @@ interface ReportModalProps {
   derived: DerivedParams;
   gridResult: CalculationGridResult | null;
   metrics: ErrorMetrics;
-  dataType: '合成验证数据' | '现场实测数据';
+  dataType: '合成测试数据' | '现场实测数据';
   datasetName: string;
+  measuredPoints?: MeasuredPoint[];
 }
 
 export const ReportModal: React.FC<ReportModalProps> = ({
@@ -30,10 +31,13 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   metrics,
   dataType,
   datasetName,
+  measuredPoints = [],
 }) => {
   const reportRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen) return null;
+
+  const hasMeasuredData = measuredPoints && measuredPoints.length > 0;
 
   const handlePrint = () => {
     window.print();
@@ -288,77 +292,86 @@ export const ReportModal: React.FC<ReportModalProps> = ({
             </div>
           </div>
 
-          {/* Section 3: Measured / Synthetic Comparison */}
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 border-b border-slate-200 pb-1.5 mb-2">
-              三、观测数据对比统计与误差评价
-            </h2>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="font-semibold text-slate-700">数据源:</span>
-              <span className="px-2 py-0.5 bg-slate-100 border rounded font-mono">
-                {datasetName || '无'} ({dataType})
-              </span>
+          {/* Section 3: Measured / Synthetic Comparison (Only rendered when real/synthetic points are actively loaded) */}
+          {hasMeasuredData && metrics && (
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 border-b border-slate-200 pb-1.5 mb-2">
+                三、观测数据对比统计与误差评价
+              </h2>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-semibold text-slate-700">数据源:</span>
+                <span className="px-2 py-0.5 bg-slate-100 border rounded font-mono">
+                  {datasetName || '无'} ({dataType})
+                </span>
+              </div>
+
+              <table className="w-full text-left border border-slate-200 rounded font-mono">
+                <thead className="bg-slate-50 text-slate-700 font-sans">
+                  <tr>
+                    <th className="p-2 border-b">评价指标</th>
+                    <th className="p-2 border-b">数学定义</th>
+                    <th className="p-2 border-b text-right">统计数值</th>
+                    <th className="p-2 border-b">单位 / 状态</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr>
+                    <td className="p-2 font-sans">观测样本总数</td>
+                    <td className="p-2">N</td>
+                    <td className="p-2 text-right">{metrics.totalPoints}</td>
+                    <td className="p-2 font-sans">个</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2 font-sans">平均绝对误差 (MAE)</td>
+                    <td className="p-2">Σ|W_pred - W_meas| / N</td>
+                    <td className="p-2 text-right font-semibold">{metrics.mae.toFixed(4)}</td>
+                    <td className="p-2 font-sans">m</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2 font-sans">均方根误差 (RMSE)</td>
+                    <td className="p-2">sqrt(Σ(e^2) / N)</td>
+                    <td className="p-2 text-right font-semibold">{metrics.rmse.toFixed(4)}</td>
+                    <td className="p-2 font-sans">m</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2 font-sans">平均相对误差 (MRE)</td>
+                    <td className="p-2">Σ|e/W_meas| / N_valid (ε={metrics.epsilon}m)</td>
+                    <td className="p-2 text-right font-semibold text-blue-700">
+                      {metrics.mre.toFixed(2)}%
+                    </td>
+                    <td className="p-2 font-sans text-[11px] text-slate-500">
+                      有效点 {metrics.validPointsMRE} / 排除 {metrics.excludedCountMRE}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="p-2 font-sans">最大绝对误差 (MaxAE)</td>
+                    <td className="p-2">max|W_pred - W_meas|</td>
+                    <td className="p-2 text-right font-semibold">{metrics.maxAbsoluteError.toFixed(4)}</td>
+                    <td className="p-2 font-sans text-[11px] text-slate-500">
+                      点号: {metrics.maxErrorPointId || '--'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
+          )}
 
-            <table className="w-full text-left border border-slate-200 rounded font-mono">
-              <thead className="bg-slate-50 text-slate-700 font-sans">
-                <tr>
-                  <th className="p-2 border-b">评价指标</th>
-                  <th className="p-2 border-b">数学定义</th>
-                  <th className="p-2 border-b text-right">统计数值</th>
-                  <th className="p-2 border-b">单位 / 状态</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                <tr>
-                  <td className="p-2 font-sans">观测样本总数</td>
-                  <td className="p-2">N</td>
-                  <td className="p-2 text-right">{metrics.totalPoints}</td>
-                  <td className="p-2 font-sans">个</td>
-                </tr>
-                <tr>
-                  <td className="p-2 font-sans">平均绝对误差 (MAE)</td>
-                  <td className="p-2">Σ|W_pred - W_meas| / N</td>
-                  <td className="p-2 text-right font-semibold">{metrics.mae.toFixed(4)}</td>
-                  <td className="p-2 font-sans">m</td>
-                </tr>
-                <tr>
-                  <td className="p-2 font-sans">均方根误差 (RMSE)</td>
-                  <td className="p-2">sqrt(Σ(e^2) / N)</td>
-                  <td className="p-2 text-right font-semibold">{metrics.rmse.toFixed(4)}</td>
-                  <td className="p-2 font-sans">m</td>
-                </tr>
-                <tr>
-                  <td className="p-2 font-sans">平均相对误差 (MRE)</td>
-                  <td className="p-2">Σ|e/W_meas| / N_valid (ε={metrics.epsilon}m)</td>
-                  <td className="p-2 text-right font-semibold text-blue-700">
-                    {metrics.mre.toFixed(2)}%
-                  </td>
-                  <td className="p-2 font-sans text-[11px] text-slate-500">
-                    有效点 {metrics.validPointsMRE} / 排除 {metrics.excludedCountMRE}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="p-2 font-sans">最大绝对误差 (MaxAE)</td>
-                  <td className="p-2">max|W_pred - W_meas|</td>
-                  <td className="p-2 text-right font-semibold">{metrics.maxAbsoluteError.toFixed(4)}</td>
-                  <td className="p-2 font-sans text-[11px] text-slate-500">
-                    点号: {metrics.maxErrorPointId || '--'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Section 4: Engineering Note */}
+          {/* Section: Engineering Note */}
           <div className="border-t border-slate-200 pt-3 text-[11px] text-slate-500 space-y-1">
-            <div className="font-semibold text-slate-700">工程审核与计算说明：</div>
+            <div className="font-semibold text-slate-700">
+              {hasMeasuredData ? '四、工程审核与计算说明：' : '三、工程审核与计算说明：'}
+            </div>
             <p>
               1. 本报告根据《采动覆岩运移—地表沉陷耦合预计模型》严格执行二维双重分离数值积分，未使用经验高斯拟合曲面替代。
             </p>
             <p>
               2. 复合 Simpson 数值积分采用 {inputs.grid.simpsonSubintervals} 子区间进行自适应求积，在 2048 与 4096 节点对比中数值收敛误差均小于 1e-12 m。
             </p>
+            {!hasMeasuredData && (
+              <p className="text-slate-400 italic">
+                3. 本工程当前未上传水准测量实测数据，报告仅输出物理位移场与地表沉降理论预计结果，不包含任何实测对比与误差统计指标。
+              </p>
+            )}
           </div>
         </div>
       </div>

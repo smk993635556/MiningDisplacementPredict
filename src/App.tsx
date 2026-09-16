@@ -4,6 +4,7 @@ import {
   DerivedParams,
   CalculationGridResult,
   MeasuredPoint,
+  MeasuredDataMeta,
   StratumLayer,
   GridConfig,
   PRESET_1312_1,
@@ -41,10 +42,11 @@ export default function App() {
   const [inputs, setInputs] = useState<ModelInputs>(PRESET_1312_1);
   const [strata, setStrata] = useState<StratumLayer[]>(DEFAULT_16_STRATA);
 
-  // Measurement State
+  // Measurement State - Strictly empty on first mount!
   const [measuredPoints, setMeasuredPoints] = useState<MeasuredPoint[]>([]);
-  const [dataType, setDataType] = useState<'合成验证数据' | '现场实测数据'>('合成验证数据');
-  const [datasetName, setDatasetName] = useState<string>('标准69点合成验证集');
+  const [dataType, setDataType] = useState<'现场实测数据' | '合成测试数据'>('现场实测数据');
+  const [datasetName, setDatasetName] = useState<string>('');
+  const [measuredDataMeta, setMeasuredDataMeta] = useState<MeasuredDataMeta | null>(null);
 
   // Calculation Results
   const [gridResult, setGridResult] = useState<CalculationGridResult | null>(null);
@@ -65,8 +67,9 @@ export default function App() {
     return calculateDerivedParams(inputs);
   }, [inputs]);
 
-  // Error metrics for current points
+  // Error metrics for current points - only evaluated if points exist
   const errorMetrics = useMemo(() => {
+    if (measuredPoints.length === 0) return undefined;
     return evaluateErrors(
       measuredPoints,
       inputs,
@@ -93,28 +96,9 @@ export default function App() {
     }, 30);
   }, [inputs, derived, validation.valid]);
 
-  // Initial mount computation and synthetic dataset loading
+  // Initial mount computation only - strictly NO synthetic data loading
   useEffect(() => {
     runComputation();
-
-    fetch('/examples/合成验证数据_严格公式_69点.csv')
-      .then((res) => {
-        if (!res.ok) throw new Error('File not found');
-        return res.text();
-      })
-      .then((csvText) => {
-        return parseMeasurementFile(csvText, '合成验证数据_严格公式');
-      })
-      .then((parsed) => {
-        if (parsed.success && parsed.points.length > 0) {
-          setMeasuredPoints(parsed.points);
-          setDataType('合成验证数据');
-          setDatasetName('标准69点合成验证集');
-        }
-      })
-      .catch((e) => {
-        console.warn('Initial synthetic dataset fetch notice:', e);
-      });
   }, []);
 
   // Update inputs patch
@@ -155,16 +139,22 @@ export default function App() {
   };
 
   // Reset to built-in standard benchmark
+  // Rule: Must clear measured data, synthetic data, error metrics and source markers!
   const handleResetPreset = () => {
     setInputs(PRESET_1312_1);
     setStrata(DEFAULT_16_STRATA);
     setProjectName(EXAMPLE_PROJECT_NAME);
+    setMeasuredPoints([]);
+    setDataType('现场实测数据');
+    setDatasetName('');
+    setMeasuredDataMeta(null);
     setTimeout(() => {
       runComputation();
     }, 50);
   };
 
   // Clear all inputs to blank/zero
+  // Rule: Must clear measured data, synthetic data, error metrics and source markers!
   const handleClearInputs = () => {
     setProjectName(DEFAULT_PROJECT_NAME);
     setInputs({
@@ -195,10 +185,14 @@ export default function App() {
       },
     });
     setMeasuredPoints([]);
+    setDataType('现场实测数据');
+    setDatasetName('');
+    setMeasuredDataMeta(null);
     setGridResult(null);
   };
 
   // Apply parsed project from Excel
+  // Rule: Strictly clear previous measured/synthetic data. Only set if parsedPoints has items!
   const handleApplyExcelProject = (parsed: ParsedExcelResult) => {
     if (parsed.projectName) {
       setProjectName(parsed.projectName);
@@ -213,15 +207,62 @@ export default function App() {
     if (parsed.strata && parsed.strata.length > 0) {
       setStrata(parsed.strata);
     }
+
     if (parsed.measuredPoints && parsed.measuredPoints.length > 0) {
       setMeasuredPoints(parsed.measuredPoints);
       setDataType('现场实测数据');
-      setDatasetName(`Excel导入测点 (${parsed.measuredPoints.length}点)`);
+      setDatasetName(`Excel导入实测 (${parsed.measuredPoints.length}点)`);
+      setMeasuredDataMeta({
+        fileName: '项目Excel导入',
+        validCount: parsed.measuredPoints.length,
+        skippedCount: parsed.summary?.skippedMeasuredPointsCount || 0,
+        source: '项目Excel导入',
+        uploadedAt: new Date().toLocaleTimeString(),
+      });
+    } else {
+      // Clear previous measured data completely
+      setMeasuredPoints([]);
+      setDataType('现场实测数据');
+      setDatasetName('');
+      setMeasuredDataMeta(null);
     }
 
     setTimeout(() => {
       runComputation();
     }, 100);
+  };
+
+  // Update measured points with metadata
+  const handleUpdatePoints = (
+    pts: MeasuredPoint[],
+    type: '现场实测数据' | '合成测试数据',
+    name: string,
+    meta?: MeasuredDataMeta
+  ) => {
+    setMeasuredPoints(pts);
+    setDataType(type);
+    setDatasetName(name);
+    if (meta) {
+      setMeasuredDataMeta(meta);
+    } else if (pts.length > 0) {
+      setMeasuredDataMeta({
+        fileName: name,
+        validCount: pts.length,
+        skippedCount: 0,
+        source: type === '合成测试数据' ? '模拟测试数据（非现场实测）' : '用户上传的现场实测数据',
+        uploadedAt: new Date().toLocaleTimeString(),
+      });
+    } else {
+      setMeasuredDataMeta(null);
+    }
+  };
+
+  // Delete measured data
+  const handleDeleteMeasuredData = () => {
+    setMeasuredPoints([]);
+    setDataType('现场实测数据');
+    setDatasetName('');
+    setMeasuredDataMeta(null);
   };
 
   // Apply values auto-calculated from StratumModal
@@ -315,11 +356,9 @@ export default function App() {
                 measuredPoints={measuredPoints}
                 dataType={dataType}
                 datasetName={datasetName}
-                onUpdatePoints={(pts, type, name) => {
-                  setMeasuredPoints(pts);
-                  setDataType(type);
-                  setDatasetName(name);
-                }}
+                measuredDataMeta={measuredDataMeta}
+                onUpdatePoints={handleUpdatePoints}
+                onDeleteMeasuredData={handleDeleteMeasuredData}
                 onOpenDetails={() => setShowDetailsDrawer(true)}
                 projectName={projectName}
               />
@@ -360,7 +399,7 @@ export default function App() {
         onApplyToInputs={handleApplyStratumCalculated}
       />
 
-      {/* Advanced Analysis Modal (PKS 3D, Model Self-Check, Parameter Calibration) */}
+      {/* Advanced Analysis Modal (PKS 3D, Model Self-Check, Parameter Calibration, Dev/Test Synthetic Data) */}
       <AdvancedAnalysisModal
         isOpen={showAdvancedModal}
         onClose={() => setShowAdvancedModal(false)}
@@ -369,6 +408,16 @@ export default function App() {
         gridResult={gridResult}
         measuredPoints={measuredPoints}
         onApplyCalibration={handleApplyCalibration}
+        onLoadSyntheticData={(pts, name) => {
+          handleUpdatePoints(pts, '合成测试数据', name, {
+            fileName: name,
+            validCount: pts.length,
+            skippedCount: 0,
+            source: '模拟测试数据（非现场实测）',
+            uploadedAt: new Date().toLocaleTimeString(),
+          });
+        }}
+        onClearMeasuredData={handleDeleteMeasuredData}
       />
 
       {/* Help Modal */}
@@ -388,6 +437,7 @@ export default function App() {
         metrics={errorMetrics}
         dataType={dataType}
         datasetName={datasetName}
+        measuredPoints={measuredPoints}
       />
     </div>
   );

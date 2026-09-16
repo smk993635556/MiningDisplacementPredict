@@ -85,6 +85,14 @@ export interface MeasuredPoint {
   dataType?: '现场实测数据' | '合成测试数据';
 }
 
+export interface MeasuredDataMeta {
+  fileName: string;
+  validCount: number;
+  skippedCount: number;
+  source: '用户上传的现场实测数据' | '模拟测试数据（非现场实测）' | '项目Excel导入';
+  uploadedAt: string;
+}
+
 export interface ErrorMetrics {
   totalPoints: number;
   validPointsMRE: number;

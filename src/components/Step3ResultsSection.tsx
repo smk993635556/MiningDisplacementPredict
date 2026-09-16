@@ -17,6 +17,7 @@ import {
 import {
   CalculationGridResult,
   MeasuredPoint,
+  MeasuredDataMeta,
   ModelInputs,
   DerivedParams,
 } from '../types.ts';
@@ -29,13 +30,16 @@ interface Step3ResultsSectionProps {
   inputs: ModelInputs;
   derived: DerivedParams;
   measuredPoints: MeasuredPoint[];
-  dataType: '合成验证数据' | '现场实测数据';
+  dataType: '合成测试数据' | '现场实测数据';
   datasetName: string;
+  measuredDataMeta?: MeasuredDataMeta | null;
   onUpdatePoints: (
     points: MeasuredPoint[],
-    type: '合成验证数据' | '现场实测数据',
-    name: string
+    type: '合成测试数据' | '现场实测数据',
+    name: string,
+    meta?: MeasuredDataMeta
   ) => void;
+  onDeleteMeasuredData: () => void;
   onOpenDetails: () => void;
   projectName: string;
 }
@@ -47,7 +51,9 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
   measuredPoints,
   dataType,
   datasetName,
+  measuredDataMeta,
   onUpdatePoints,
+  onDeleteMeasuredData,
   onOpenDetails,
   projectName,
 }) => {
@@ -151,35 +157,6 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Handle Quick Load 69 Synthetic Points
-  const handleLoadStandardSynthetic = async () => {
-    try {
-      const resp = await fetch('/examples/合成验证数据_严格公式_69点.csv');
-      const text = await resp.text();
-      const lines = text.trim().split('\n');
-      const points: MeasuredPoint[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',').map((p) => p.trim());
-        if (parts.length >= 4) {
-          const s = parseFloat(parts[2]);
-          const w = parseFloat(parts[3]);
-          const section = parts[1] as 'strike' | 'dip';
-          points.push({
-            point_id: parts[0],
-            section,
-            s,
-            x: section === 'dip' ? 0 : s,
-            y: section === 'dip' ? s : 0,
-            w_measured: w,
-          });
-        }
-      }
-      onUpdatePoints(points, '合成验证数据', '标准69点合成验证集');
-    } catch (e) {
-      alert('载入基准合成数据失败');
-    }
-  };
-
   if (!gridResult || !gridResult.xs || !gridResult.ys || !gridResult.surfaceW) {
     return (
       <section className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -239,9 +216,9 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
         y: measuredPoints.map((p) => p?.y ?? 0),
         mode: 'markers',
         type: 'scatter',
-        name: dataType === '合成验证数据' ? '合成测点' : '实测点',
+        name: dataType === '合成测试数据' ? '模拟测试测点(非实测)' : '现场实测点',
         marker: {
-          color: '#ef4444',
+          color: dataType === '合成测试数据' ? '#0891b2' : '#ef4444',
           size: 6,
           symbol: 'circle',
           line: { color: '#ffffff', width: 1 },
@@ -288,14 +265,14 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
         y: strikeMeasured.map((p) => p?.w_measured ?? 0),
         type: 'scatter',
         mode: 'markers',
-        name: dataType === '合成验证数据' ? '走向合成测点' : '走向实测点',
+        name: dataType === '合成测试数据' ? '走向模拟测点(非实测)' : '走向现场实测点',
         marker: {
-          color: '#dc2626',
+          color: dataType === '合成测试数据' ? '#0891b2' : '#dc2626',
           size: 7,
           symbol: 'diamond',
           line: { color: '#ffffff', width: 1 },
         },
-        text: strikeMeasured.map((p) => `${p?.point_id ?? ''}: 实测 ${(p?.w_measured ?? 0).toFixed(4)}m`),
+        text: strikeMeasured.map((p) => `${p?.point_id ?? ''}: ${(p?.w_measured ?? 0).toFixed(4)}m`),
         hovertemplate: '%{text}<br>走向 x: %{x:.1f} m<extra></extra>',
       });
     }
@@ -337,14 +314,14 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
         y: dipMeasured.map((p) => p?.w_measured ?? 0),
         type: 'scatter',
         mode: 'markers',
-        name: dataType === '合成验证数据' ? '倾向合成测点' : '倾向实测点',
+        name: dataType === '合成测试数据' ? '倾向模拟测点(非实测)' : '倾向现场实测点',
         marker: {
-          color: '#dc2626',
+          color: dataType === '合成测试数据' ? '#0891b2' : '#dc2626',
           size: 7,
           symbol: 'diamond',
           line: { color: '#ffffff', width: 1 },
         },
-        text: dipMeasured.map((p) => `${p?.point_id ?? ''}: 实测 ${(p?.w_measured ?? 0).toFixed(4)}m`),
+        text: dipMeasured.map((p) => `${p?.point_id ?? ''}: ${(p?.w_measured ?? 0).toFixed(4)}m`),
         hovertemplate: '%{text}<br>倾向 y: %{x:.1f} m<extra></extra>',
       });
     }
@@ -619,38 +596,16 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
         {/* Tab 5: Measured Points Comparison */}
         {activeTab === 'measured' && (
           <div>
-            {measuredPoints.length === 0 ? (
-              <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center space-y-3">
-                <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-500 mx-auto flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">当前工程暂无实测对比数据</h3>
-                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                    可在第一步“导入项目 Excel”上传包含“实测数据”工作簿的文件，或点击下方按钮载入标准 69 点合成验证数据集。
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={handleLoadStandardSynthetic}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow-2xs transition-colors inline-flex items-center gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>载入标准 69 点合成验证数据</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <MeasuredDataComparison
-                inputs={inputs}
-                derived={derived}
-                measuredPoints={measuredPoints}
-                dataType={dataType}
-                datasetName={datasetName}
-                onUpdatePoints={onUpdatePoints}
-              />
-            )}
+            <MeasuredDataComparison
+              inputs={inputs}
+              derived={derived}
+              measuredPoints={measuredPoints}
+              dataType={dataType}
+              datasetName={datasetName}
+              measuredDataMeta={measuredDataMeta}
+              onUpdatePoints={onUpdatePoints}
+              onDeleteMeasuredData={onDeleteMeasuredData}
+            />
           </div>
         )}
       </div>

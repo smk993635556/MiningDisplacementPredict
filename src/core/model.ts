@@ -411,7 +411,7 @@ export function evaluateErrors(
       maxErrorPointId = pt.point_id;
     }
 
-    const isExcluded = Math.abs(pt.w_measured) <= epsilon;
+    const isExcluded = Math.abs(pt.w_measured) < epsilon;
     let relError = 0;
     if (!isExcluded) {
       relError = absError / Math.abs(pt.w_measured);

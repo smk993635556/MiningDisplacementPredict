@@ -1,5 +1,20 @@
 import React, { useState } from 'react';
-import { X, Box, ShieldCheck, Sliders, CheckCircle2, RotateCw, Copy, Check, TrendingDown } from 'lucide-react';
+import {
+  X,
+  Box,
+  ShieldCheck,
+  Sliders,
+  CheckCircle2,
+  RotateCw,
+  Copy,
+  Check,
+  TrendingDown,
+  FlaskConical,
+  AlertTriangle,
+  FileCheck,
+  FileSpreadsheet,
+  Trash2,
+} from 'lucide-react';
 import {
   ModelInputs,
   DerivedParams,
@@ -12,6 +27,7 @@ import {
 import { PKSVisualizer } from './PKSVisualizer.tsx';
 import { runModelSelfCheck } from '../core/model.ts';
 import { runParameterCalibration } from '../core/calibration.ts';
+import { parseMeasurementFile } from '../core/fileParser.ts';
 
 interface AdvancedAnalysisModalProps {
   isOpen: boolean;
@@ -21,6 +37,8 @@ interface AdvancedAnalysisModalProps {
   gridResult: CalculationGridResult | null;
   measuredPoints: MeasuredPoint[];
   onApplyCalibration: (newInputs: Partial<ModelInputs>) => void;
+  onLoadSyntheticData?: (points: MeasuredPoint[], name: string) => void;
+  onClearMeasuredData?: () => void;
 }
 
 export const AdvancedAnalysisModal: React.FC<AdvancedAnalysisModalProps> = ({
@@ -31,8 +49,12 @@ export const AdvancedAnalysisModal: React.FC<AdvancedAnalysisModalProps> = ({
   gridResult,
   measuredPoints,
   onApplyCalibration,
+  onLoadSyntheticData,
+  onClearMeasuredData,
 }) => {
-  const [activeTab, setActiveTab] = useState<'pks' | 'selfcheck' | 'calibration'>('pks');
+  const [activeTab, setActiveTab] = useState<'pks' | 'selfcheck' | 'calibration' | 'devtest'>('pks');
+  const [isLoadingSynthetic, setIsLoadingSynthetic] = useState(false);
+  const [syntheticStatus, setSyntheticStatus] = useState<string | null>(null);
 
   // Self-Check state
   const [report, setReport] = useState<AcceptanceTestReport | null>(null);
@@ -106,6 +128,40 @@ export const AdvancedAnalysisModal: React.FC<AdvancedAnalysisModalProps> = ({
     }, 50);
   };
 
+  // Handle synthetic test data loading
+  const handleLoadSynthetic = async (type: 'strict' | 'noisy') => {
+    setIsLoadingSynthetic(true);
+    setSyntheticStatus(null);
+    try {
+      const url =
+        type === 'strict'
+          ? '/examples/合成验证数据_严格公式_69点.csv'
+          : '/examples/合成验证数据_带噪声_69点.csv';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('未能加载模拟测试数据文件');
+      const text = await res.text();
+      const parsed = await parseMeasurementFile(
+        text,
+        type === 'strict' ? '合成验证数据_严格公式' : '合成验证数据_带噪声'
+      );
+      if (parsed.success && onLoadSyntheticData) {
+        onLoadSyntheticData(
+          parsed.points,
+          type === 'strict' ? '无噪声严格公式合成集 (69点)' : '含高斯噪声合成集 (69点)'
+        );
+        setSyntheticStatus(
+          `已成功载入${type === 'strict' ? '无噪声严格公式合成集' : '含高斯噪声合成集'} (${parsed.points.length}点)，主界面将高亮黄色警示条标记。`
+        );
+      } else if (!parsed.success) {
+        alert(`解析失败: ${parsed.errors.join('; ')}`);
+      }
+    } catch (err: any) {
+      alert(`载入模拟测试数据集失败: ${err.message}`);
+    } finally {
+      setIsLoadingSynthetic(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -117,7 +173,7 @@ export const AdvancedAnalysisModal: React.FC<AdvancedAnalysisModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900">高级分析与物理验证中心</h2>
-              <p className="text-xs text-slate-500">主关键层下沉场深度解析、模型数值自检套件与参数反演校准</p>
+              <p className="text-xs text-slate-500">主关键层下沉场深度解析、模型数值自检套件、参数反演校准与算法测试</p>
             </div>
           </div>
 
@@ -163,6 +219,19 @@ export const AdvancedAnalysisModal: React.FC<AdvancedAnalysisModalProps> = ({
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>参数反演校准</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('devtest')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                activeTab === 'devtest'
+                  ? 'bg-white text-amber-700 shadow-2xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FlaskConical className="w-3.5 h-3.5" />
+              <span>开发与测试</span>
             </button>
           </div>
 
@@ -443,6 +512,127 @@ export const AdvancedAnalysisModal: React.FC<AdvancedAnalysisModalProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 4. Dev & Test (Synthetic Data Testing) */}
+          {activeTab === 'devtest' && (
+            <div className="space-y-4">
+              {/* Mandatory Warning Banner */}
+              <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold text-sm text-amber-950">
+                    【算法验证专用警告】
+                  </div>
+                  <p className="leading-relaxed font-medium">
+                    本区域数据为基于既定几何参数反算的理论模拟值，仅供核验数值积分算法与代码逻辑，严禁用于矿井工程沉陷评价与实测精度验收。
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Feedback */}
+              {syntheticStatus && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{syntheticStatus}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSyntheticStatus(null)}
+                    className="text-emerald-600 hover:text-emerald-800 text-[11px] font-medium"
+                  >
+                    忽略
+                  </button>
+                </div>
+              )}
+
+              {/* Action Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Strict Synthetic Dataset */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                      <FileCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">无噪声严格公式合成集</h4>
+                      <p className="text-[11px] text-slate-500">走向+倾向共 69 个散点</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    完全由破断位移场与双重积分严格公式直接导出，不包含任何测量误差。用于检验积分步长、数值收敛精度及基准代码零误差断言。
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleLoadSynthetic('strict')}
+                      disabled={isLoadingSynthetic}
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-2xs disabled:opacity-50"
+                    >
+                      <FileCheck className="w-3.5 h-3.5" />
+                      <span>载入无噪声严格公式合成集（69点）</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Noisy Synthetic Dataset */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                      <FileSpreadsheet className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">含高斯噪声合成集</h4>
+                      <p className="text-[11px] text-slate-500">走向+倾向共 69 个散点（含扰动）</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    在理论值基础上叠加随机高斯扰动（标准差约 30mm），用于测试稳健性、误差统计指标（MAE、RMSE、MRE）和反演抗噪性能。
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleLoadSynthetic('noisy')}
+                      disabled={isLoadingSynthetic}
+                      className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-2xs disabled:opacity-50"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      <span>载入含高斯噪声合成集（69点）</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Clear Option & Current Status */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-xs">
+                  <span className="font-semibold text-slate-700">当前实测数据槽位状态：</span>
+                  {measuredPoints.length > 0 ? (
+                    <span className="text-blue-700 font-mono ml-1 font-bold">
+                      已占用 ({measuredPoints.length} 点，包含已载入的数据)
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 ml-1">当前为空（符合未上传原则）</span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onClearMeasuredData) {
+                      onClearMeasuredData();
+                      setSyntheticStatus('已成功清除所有实测与测试数据，数据槽位恢复为空。');
+                    }
+                  }}
+                  disabled={measuredPoints.length === 0}
+                  className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>清除当前测试数据</span>
+                </button>
+              </div>
             </div>
           )}
         </div>

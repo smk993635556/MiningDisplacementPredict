@@ -15,6 +15,8 @@ export interface ProjectExcelParseResult {
     parametersCount: number;
     strataCount: number;
     measuredPointsCount: number;
+    skippedMeasuredPointsCount?: number;
+    measuredStatusNote?: string;
     pksRecognized: boolean;
     coalRecognized: boolean;
     calculatedH_l?: number;
@@ -380,57 +382,71 @@ export async function parseProjectExcel(
 
   // ----------------------------------------------------
   // 3. Parse "实测数据" (optional)
+  // Strictly read only columns A:F (index 0 to 5)
+  // Never treat column H or beyond (notes/summary) as measured points
   // ----------------------------------------------------
   const parsedPoints: MeasuredPoint[] = [];
+  let skippedMeasuredCount = 0;
+  let measuredStatusNote = '';
 
   if (measuredSheetName) {
     const sheet = workbook.Sheets[measuredSheetName];
     const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
     if (rawRows.length > 1) {
-      let headerRowIdx = 0;
-      const lowerRow = rawRows[headerRowIdx].map((c) => String(c || '').trim().toLowerCase());
+      // Look only at columns A:F of header row
+      const headerSlice = (rawRows[0] || []).slice(0, 6);
+      const lowerRow = headerSlice.map((c) => String(c || '').trim().toLowerCase());
 
-      let idIdx = lowerRow.findIndex((c) => c.includes('point') || c.includes('id') || c.includes('点号'));
-      let secIdx = lowerRow.findIndex((c) => c.includes('section') || c.includes('断面') || c.includes('剖面'));
-      let xIdx = lowerRow.findIndex((c) => c.includes('x') || c.includes('走向'));
-      let yIdx = lowerRow.findIndex((c) => c.includes('y') || c.includes('倾向'));
-      let wIdx = lowerRow.findIndex((c) => c.includes('w') || c.includes('measured') || c.includes('沉降') || c.includes('下沉'));
-      let typeIdx = lowerRow.findIndex((c) => c.includes('type') || c.includes('数据类型') || c.includes('类型'));
+      let idIdx = lowerRow.findIndex((c) => c.includes('point') || c.includes('id') || c.includes('点号') || c.includes('测点'));
+      let secIdx = lowerRow.findIndex((c) => c.includes('section') || c.includes('断面') || c.includes('剖面') || c.includes('测线'));
+      let xIdx = lowerRow.findIndex((c) => c === 'x_m' || c === 'x' || c.includes('走向'));
+      let yIdx = lowerRow.findIndex((c) => c === 'y_m' || c === 'y' || c.includes('倾向'));
+      let wIdx = lowerRow.findIndex((c) => c === 'w_measured_m' || c.includes('w') || c.includes('measured') || c.includes('沉降') || c.includes('下沉'));
+      let typeIdx = lowerRow.findIndex((c) => c === 'data_type' || c.includes('type') || c.includes('数据类型') || c.includes('类型'));
 
-      // Fallbacks
+      // Fallbacks within standard A:F (0~5)
       if (idIdx === -1) idIdx = 0;
-      if (xIdx === -1) xIdx = 1;
-      if (yIdx === -1) yIdx = 2;
-      if (wIdx === -1) wIdx = 3;
+      if (secIdx === -1) secIdx = 1;
+      if (xIdx === -1) xIdx = 2;
+      if (yIdx === -1) yIdx = 3;
+      if (wIdx === -1) wIdx = 4;
 
       for (let r = 1; r < rawRows.length; r++) {
-        const row = rawRows[r];
-        if (!row || row.length === 0 || row.every((c) => c === undefined || c === null || c === '')) {
+        // Strictly slice only columns A:F (index 0 through 5)
+        const row = (rawRows[r] || []).slice(0, 6);
+        // Completely blank row check
+        if (!row || row.length === 0 || row.every((c) => c === undefined || c === null || String(c).trim() === '')) {
+          continue; // skip empty line, do not count
+        }
+
+        const ptId = String(row[idIdx] !== undefined ? row[idIdx] : '').trim();
+        if (!ptId) {
+          skippedMeasuredCount++;
           continue;
         }
 
-        const ptId = String(row[idIdx] !== undefined ? row[idIdx] : `PT${r}`).trim();
         const xVal = Number(row[xIdx]);
         const yVal = Number(row[yIdx]);
         const wVal = Number(row[wIdx]);
-        const rawSec = secIdx !== -1 ? String(row[secIdx] || '').trim() : '';
-        const rawType = typeIdx !== -1 ? String(row[typeIdx] || '').trim() : '';
+        const rawSec = secIdx !== -1 && row[secIdx] !== undefined ? String(row[secIdx]).trim() : '';
+        const rawType = typeIdx !== -1 && row[typeIdx] !== undefined ? String(row[typeIdx]).trim() : '';
 
-        if (isNaN(xVal) || isNaN(yVal) || isNaN(wVal)) {
-          warnings.push(`实测数据表第 ${r} 行点号 ${ptId} 存在非数值坐标或下沉值，已跳过`);
+        if (isNaN(xVal) || isNaN(yVal) || isNaN(wVal) || !isFinite(xVal) || !isFinite(yVal) || !isFinite(wVal)) {
+          warnings.push(`实测数据表第 ${r + 1} 行测点 ${ptId} 存在非数值坐标或下沉值，已跳过`);
+          skippedMeasuredCount++;
           continue;
         }
 
         const isSynth =
           rawType.includes('合成') ||
+          rawType.includes('模拟') ||
           rawType.includes('synthetic') ||
-          ptId.includes('SYN') ||
-          (fileName && fileName.includes('合成'));
+          (fileName && (fileName.includes('合成') || fileName.includes('模拟')));
 
         parsedPoints.push({
           point_id: ptId,
-          section: rawSec.includes('倾向') || rawSec.toLowerCase() === 'dip' ? 'dip' : 'strike',
+          section: rawSec.includes('倾向') || rawSec.toLowerCase() === 'dip' ? 'dip' : rawSec.includes('走向') || rawSec.toLowerCase() === 'strike' ? 'strike' : 'other',
           x: xVal,
           y: yVal,
           w_measured: wVal,
@@ -438,6 +454,10 @@ export async function parseProjectExcel(
         });
       }
     }
+  }
+
+  if (parsedPoints.length === 0) {
+    measuredStatusNote = '该项目文件未包含逐点实测数据，可另行上传实测CSV/XLSX';
   }
 
   // ----------------------------------------------------
@@ -480,6 +500,8 @@ export async function parseProjectExcel(
       parametersCount: Object.keys(parsedParams).length,
       strataCount: parsedStrata.length,
       measuredPointsCount: parsedPoints.length,
+      skippedMeasuredPointsCount: skippedMeasuredCount,
+      measuredStatusNote,
       pksRecognized: strataAnalysis.pksLayerIndex !== -1,
       coalRecognized: strataAnalysis.coalLayerIndex !== -1,
       calculatedH_l: strataAnalysis.H_l,
@@ -600,27 +622,14 @@ export function generateSampleProjectWorkbook(): XLSX.WorkBook {
   wsStrata['!cols'] = [{ wch: 10 }, { wch: 28 }, { wch: 15 }, { wch: 15 }, { wch: 40 }];
   XLSX.utils.book_append_sheet(wb, wsStrata, '地层表');
 
-  // 3. 实测数据 Sheet (69 benchmark points)
+  // 3. 实测数据 Sheet (默认保持空，仅含标准表头，避免误充当现场实测)
   const measuredData: (string | number)[][] = [
     ['point_id', 'section', 'x_m', 'y_m', 'w_measured_m', 'data_type'],
+    ['# 说明: 测点编号', '剖面类型 (strike/dip/other)', '走向坐标(m)', '倾向坐标(m)', '实测下沉(m，向下为正)', '数据类型 (现场实测数据)'],
   ];
 
-  // Add 69 points matching theoretical profile points
-  // Strike section (y = 0, x from -600 to 600, step 30)
-  for (let x = -600; x <= 600; x += 30) {
-    const ptId = `Z${x >= 0 ? '+' : ''}${x}`;
-    // Expected benchmark value (calculated dynamically or standard baseline)
-    measuredData.push([ptId, 'strike', x, 0, '', '合成测试数据']);
-  }
-  // Dip section (x = 0, y from -400 to 400, step 30)
-  for (let y = -400; y <= 400; y += 30) {
-    if (y === 0) continue; // avoid duplicate center point
-    const ptId = `Q${y >= 0 ? '+' : ''}${y}`;
-    measuredData.push([ptId, 'dip', 0, y, '', '合成测试数据']);
-  }
-
   const wsMeasured = XLSX.utils.aoa_to_sheet(measuredData);
-  wsMeasured['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 18 }, { wch: 20 }];
+  wsMeasured['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 22 }, { wch: 22 }];
   XLSX.utils.book_append_sheet(wb, wsMeasured, '实测数据');
 
   return wb;
