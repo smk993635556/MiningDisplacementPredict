@@ -29,7 +29,10 @@ export interface ModelInputs {
   grid: GridConfig;
 }
 
+export type GridMode = 'adaptive' | 'manual';
+
 export interface GridConfig {
+  mode: GridMode; // 'adaptive' (自动自适应模式) | 'manual' (手动网格模式)
   xMin: number;
   xMax: number;
   xStep: number;
@@ -38,6 +41,17 @@ export interface GridConfig {
   yStep: number;
   simpsonSubintervals: 512 | 1024 | 2048 | 4096;
   subsidenceThreshold?: number;
+}
+
+export interface GridCoverageCheck {
+  isCovered: boolean;
+  requiredXMin: number;
+  requiredXMax: number;
+  requiredYMin: number;
+  requiredYMax: number;
+  deficitX: boolean;
+  deficitY: boolean;
+  message?: string;
 }
 
 export interface DerivedParams {
@@ -189,6 +203,7 @@ export const STANDARD_BENCHMARK_PRESET: ModelInputs = {
   phi: 45.0,
   eta_s: 1.1,
   grid: {
+    mode: 'adaptive',
     xMin: -800,
     xMax: 800,
     xStep: 20,
@@ -196,10 +211,99 @@ export const STANDARD_BENCHMARK_PRESET: ModelInputs = {
     yMax: 800,
     yStep: 20,
     simpsonSubintervals: 2048,
+    subsidenceThreshold: 0.01,
   },
 };
 
 export const PRESET_1312_1: ModelInputs = STANDARD_BENCHMARK_PRESET;
+
+// Preset 2: Large Span Fully Extracted Face
+export const PRESET_LARGE_FACE: ModelInputs = {
+  caseName: '示例工程：大采宽充分采动综采工作面',
+  d: 950.0,
+  m: 320.0,
+  M: 4.5,
+  alpha: 6.0,
+  miningDepth: 620.0,
+  H_PKS_d: 48.0,
+  H_PKS_u: 35.0,
+  H_l: 480.0,
+  Kp_res: 1.05,
+  theta: 78.0,
+  L_PKS: 36.0,
+  delta0: 48.0,
+  phi: 46.0,
+  eta_s: 1.15,
+  grid: {
+    mode: 'adaptive',
+    xMin: -1100,
+    xMax: 1100,
+    xStep: 25,
+    yMin: -800,
+    yMax: 800,
+    yStep: 25,
+    simpsonSubintervals: 2048,
+    subsidenceThreshold: 0.01,
+  },
+};
+
+// Preset 3: Shallow Mining Depth Thin Bedrock Face
+export const PRESET_SHALLOW_FACE: ModelInputs = {
+  caseName: '示例工程：浅埋厚松散层薄基岩工作面',
+  d: 460.0,
+  m: 160.0,
+  M: 2.8,
+  alpha: 3.0,
+  miningDepth: 260.0,
+  H_PKS_d: 18.0,
+  H_PKS_u: 15.0,
+  H_l: 190.0,
+  Kp_res: 1.02,
+  theta: 72.0,
+  L_PKS: 22.0,
+  delta0: 45.0,
+  phi: 43.0,
+  eta_s: 1.05,
+  grid: {
+    mode: 'adaptive',
+    xMin: -550,
+    xMax: 550,
+    xStep: 20,
+    yMin: -450,
+    yMax: 450,
+    yStep: 20,
+    simpsonSubintervals: 2048,
+    subsidenceThreshold: 0.01,
+  },
+};
+
+export interface EngineeringCasePreset {
+  id: string;
+  name: string;
+  shortDesc: string;
+  inputs: ModelInputs;
+}
+
+export const ENGINEERING_PRESETS: EngineeringCasePreset[] = [
+  {
+    id: 'preset_standard',
+    name: '示例工程：深厚松散层非充分采动 (标准工况)',
+    shortDesc: '走向630m × 倾向205m，采深528m，深厚松散层440m',
+    inputs: STANDARD_BENCHMARK_PRESET,
+  },
+  {
+    id: 'preset_large',
+    name: '示例工程：大采宽充分采动综采工作面',
+    shortDesc: '走向950m × 倾向320m，采深620m，大采宽充分采动',
+    inputs: PRESET_LARGE_FACE,
+  },
+  {
+    id: 'preset_shallow',
+    name: '示例工程：浅埋厚松散层薄基岩工作面',
+    shortDesc: '走向460m × 倾向160m，采深260m，浅埋工作面',
+    inputs: PRESET_SHALLOW_FACE,
+  },
+];
 
 // Default 16 Stratum Table matching standard example
 export const DEFAULT_16_STRATA: StratumLayer[] = [

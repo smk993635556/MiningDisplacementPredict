@@ -11,12 +11,15 @@ import {
   DEFAULT_16_STRATA,
   DEFAULT_PROJECT_NAME,
   EXAMPLE_PROJECT_NAME,
+  ENGINEERING_PRESETS,
 } from './types.ts';
 import {
   validateInputs,
   calculateDerivedParams,
   computeFullGrid,
   evaluateErrors,
+  calculateAdaptiveGridConfig,
+  checkGridCoverage,
 } from './core/model.ts';
 import { parseMeasurementFile } from './core/fileParser.ts';
 import { ParsedExcelResult } from './core/excelProjectService.ts';
@@ -102,62 +105,130 @@ export default function App() {
   }, []);
 
   // Update inputs patch
+  // Rule: If key parameters changed, invalidate previous results (Requirement 6)
+  // and recalculate adaptive grid bounds if in adaptive mode (Requirement 1 & 2)
   const handleUpdateInputs = (patch: Partial<ModelInputs>) => {
-    setInputs((prev) => ({
-      ...prev,
-      ...patch,
-    }));
+    const isKeyParamChanged =
+      patch.d !== undefined ||
+      patch.m !== undefined ||
+      patch.M !== undefined ||
+      patch.H_PKS_d !== undefined ||
+      patch.H_PKS_u !== undefined ||
+      patch.H_l !== undefined ||
+      patch.theta !== undefined ||
+      patch.delta0 !== undefined ||
+      patch.phi !== undefined ||
+      patch.L_PKS !== undefined ||
+      patch.Kp_res !== undefined ||
+      patch.eta_s !== undefined;
+
+    if (isKeyParamChanged) {
+      // Invalidate previous calculation results
+      setGridResult(null);
+    }
+
+    setInputs((prev) => {
+      const next = { ...prev, ...patch };
+      // If in adaptive mode (default), automatically re-calculate adaptive grid bounds
+      if (isKeyParamChanged && prev.grid.mode !== 'manual') {
+        const nextDerived = calculateDerivedParams(next);
+        const adaptiveGrid = calculateAdaptiveGridConfig(next, nextDerived, prev.grid);
+        next.grid = adaptiveGrid;
+      }
+      return next;
+    });
   };
 
   // Update calculation grid config
+  // Rule: Modifying grid invalidates previous results and transitions to manual mode
   const handleUpdateGrid = (patch: Partial<GridConfig>) => {
+    setGridResult(null);
     setInputs((prev) => ({
       ...prev,
       grid: {
         ...prev.grid,
         ...patch,
+        mode: patch.mode !== undefined ? patch.mode : 'manual',
       },
     }));
   };
 
-  // Reset grid to optimal bounds based on d, m, and r
-  const handleResetAdaptiveGrid = () => {
-    const effectiveR = derived.r > 50 ? derived.r : 400;
-    const halfX = Math.ceil((inputs.d / 2 + 1.4 * effectiveR) / 50) * 50;
-    const halfY = Math.ceil((inputs.m / 2 + 1.4 * effectiveR) / 50) * 50;
-
-    handleUpdateGrid({
-      xMin: -halfX,
-      xMax: halfX,
-      xStep: 20,
-      yMin: -halfY,
-      yMax: halfY,
-      yStep: 20,
-      simpsonSubintervals: 2048,
-      subsidenceThreshold: 0.01,
-    });
+  // Switch grid mode: adaptive vs manual
+  const handleSetGridMode = (mode: 'adaptive' | 'manual') => {
+    if (mode === 'adaptive') {
+      handleResetAdaptiveGrid();
+    } else {
+      handleUpdateGrid({ mode: 'manual' });
+    }
   };
 
-  // Reset to built-in standard benchmark
-  // Rule: Must clear measured data, synthetic data, error metrics and source markers!
-  const handleResetPreset = () => {
-    setInputs(PRESET_1312_1);
+  // Reset grid to optimal bounds based on d, m, and r, and recalculate immediately
+  const handleResetAdaptiveGrid = () => {
+    const adaptiveGrid = calculateAdaptiveGridConfig(inputs, derived);
+    const updatedInputs: ModelInputs = {
+      ...inputs,
+      grid: adaptiveGrid,
+    };
+    setInputs(updatedInputs);
+    setGridResult(null);
+    setIsComputing(true);
+
+    setTimeout(() => {
+      try {
+        const result = computeFullGrid(updatedInputs, derived, adaptiveGrid);
+        setGridResult(result);
+      } catch (err) {
+        console.error('Computation error:', err);
+      } finally {
+        setIsComputing(false);
+      }
+    }, 30);
+  };
+
+  // Switch or reset to engineering preset
+  // Rule: Strictly clear previous measured/synthetic data, invalidate old grids,
+  // recompute adaptive grid, and immediately generate results for current engineering!
+  const handleSelectPreset = (presetId: string = 'preset_standard') => {
+    const presetItem =
+      ENGINEERING_PRESETS.find((p) => p.id === presetId) || ENGINEERING_PRESETS[0];
+    const targetInputs = { ...presetItem.inputs };
+    const targetDerived = calculateDerivedParams(targetInputs);
+    // Automatically calculate adaptive grid bounds for this project (Requirement 1 & 2)
+    const adaptiveGrid = calculateAdaptiveGridConfig(targetInputs, targetDerived);
+    targetInputs.grid = adaptiveGrid;
+
+    setProjectName(presetItem.name);
+    setInputs(targetInputs);
     setStrata(DEFAULT_16_STRATA);
-    setProjectName(EXAMPLE_PROJECT_NAME);
     setMeasuredPoints([]);
     setDataType('现场实测数据');
     setDatasetName('');
     setMeasuredDataMeta(null);
+    setGridResult(null);
+
+    // Immediately compute and render fresh results for current engineering
+    setIsComputing(true);
     setTimeout(() => {
-      runComputation();
-    }, 50);
+      try {
+        const result = computeFullGrid(targetInputs, targetDerived, adaptiveGrid);
+        setGridResult(result);
+      } catch (err) {
+        console.error('Computation error:', err);
+      } finally {
+        setIsComputing(false);
+      }
+    }, 40);
+  };
+
+  const handleResetPreset = () => {
+    handleSelectPreset('preset_standard');
   };
 
   // Clear all inputs to blank/zero
   // Rule: Must clear measured data, synthetic data, error metrics and source markers!
   const handleClearInputs = () => {
     setProjectName(DEFAULT_PROJECT_NAME);
-    setInputs({
+    const blankInputs: ModelInputs = {
       caseName: DEFAULT_PROJECT_NAME,
       d: 0,
       m: 0,
@@ -174,6 +245,7 @@ export default function App() {
       phi: 0,
       eta_s: 1.0,
       grid: {
+        mode: 'adaptive',
         xMin: -800,
         xMax: 800,
         xStep: 20,
@@ -183,7 +255,8 @@ export default function App() {
         simpsonSubintervals: 2048,
         subsidenceThreshold: 0.01,
       },
-    });
+    };
+    setInputs(blankInputs);
     setMeasuredPoints([]);
     setDataType('现场实测数据');
     setDatasetName('');
@@ -192,18 +265,25 @@ export default function App() {
   };
 
   // Apply parsed project from Excel
-  // Rule: Strictly clear previous measured/synthetic data. Only set if parsedPoints has items!
+  // Rule: Strictly clear previous measured/synthetic data and previous gridResult.
+  // Advanced grid parameters MUST NOT be inherited across projects!
   const handleApplyExcelProject = (parsed: ParsedExcelResult) => {
-    if (parsed.projectName) {
-      setProjectName(parsed.projectName);
-    }
-    if (parsed.inputs) {
-      setInputs((prev) => ({
-        ...prev,
-        ...parsed.inputs,
-        grid: prev.grid, // preserve or adapt grid
-      }));
-    }
+    const nextProjectName = parsed.projectName || '导入工程';
+    setProjectName(nextProjectName);
+
+    // Clear previous project's calculation result
+    setGridResult(null);
+
+    const baseInputs = parsed.inputs || inputs;
+    // Strictly calculate adaptive grid for the imported project; DO NOT inherit manual or previous grid!
+    const targetDerived = calculateDerivedParams(baseInputs);
+    const adaptiveGrid = calculateAdaptiveGridConfig(baseInputs, targetDerived);
+    const targetInputs: ModelInputs = {
+      ...baseInputs,
+      grid: adaptiveGrid,
+    };
+
+    setInputs(targetInputs);
     if (parsed.strata && parsed.strata.length > 0) {
       setStrata(parsed.strata);
     }
@@ -227,9 +307,18 @@ export default function App() {
       setMeasuredDataMeta(null);
     }
 
+    // Immediately compute with the new project and adaptive grid
+    setIsComputing(true);
     setTimeout(() => {
-      runComputation();
-    }, 100);
+      try {
+        const result = computeFullGrid(targetInputs, targetDerived, adaptiveGrid);
+        setGridResult(result);
+      } catch (err) {
+        console.error('Computation error:', err);
+      } finally {
+        setIsComputing(false);
+      }
+    }, 60);
   };
 
   // Update measured points with metadata
@@ -299,6 +388,7 @@ export default function App() {
         projectName={projectName}
         setProjectName={setProjectName}
         onResetPreset={handleResetPreset}
+        onSelectPreset={handleSelectPreset}
         onClearInputs={handleClearInputs}
         onOpenAdvanced={() => setShowAdvancedModal(true)}
         onOpenHelp={() => setShowHelpModal(true)}
@@ -339,11 +429,14 @@ export default function App() {
               {/* Step 2: Validation & Compute Section */}
               <Step2ActionSection
                 inputs={inputs}
+                derived={derived}
                 validation={validation}
                 isComputing={isComputing}
+                gridResult={gridResult}
                 onCompute={runComputation}
                 onUpdateGrid={handleUpdateGrid}
                 onResetAdaptiveGrid={handleResetAdaptiveGrid}
+                onSetGridMode={handleSetGridMode}
               />
             </div>
 
@@ -357,6 +450,9 @@ export default function App() {
                 dataType={dataType}
                 datasetName={datasetName}
                 measuredDataMeta={measuredDataMeta}
+                isComputing={isComputing}
+                onCompute={runComputation}
+                onResetAdaptiveGrid={handleResetAdaptiveGrid}
                 onUpdatePoints={handleUpdatePoints}
                 onDeleteMeasuredData={handleDeleteMeasuredData}
                 onOpenDetails={() => setShowDetailsDrawer(true)}

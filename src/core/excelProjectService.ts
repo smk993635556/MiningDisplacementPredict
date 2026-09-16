@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import type { ModelInputs, StratumLayer, MeasuredPoint } from '../types.ts';
 import { PRESET_1312_1, DEFAULT_16_STRATA } from '../types.ts';
 import { calculateOverburdenFromStrata, normalizeLayerType } from './stratumCalculator.ts';
+import { calculateDerivedParams, calculateAdaptiveGridConfig } from './model.ts';
 
 export interface ProjectExcelParseResult {
   success: boolean;
@@ -467,7 +468,7 @@ export async function parseProjectExcel(
   const H_PKS_u = strataAnalysis.valid ? strataAnalysis.H_PKS_u : parsedParams['H_PKS_u'] || PRESET_1312_1.H_PKS_u;
   const H_PKS_d = strataAnalysis.valid ? strataAnalysis.H_PKS_d : parsedParams['H_PKS_d'] || PRESET_1312_1.H_PKS_d;
 
-  const inputs: ModelInputs = {
+  const rawInputs: ModelInputs = {
     caseName: projectName || '导入工程',
     d: parsedParams['d'] || PRESET_1312_1.d,
     m: parsedParams['m'] || PRESET_1312_1.m,
@@ -483,7 +484,25 @@ export async function parseProjectExcel(
     delta0: parsedParams['delta0_deg'] || PRESET_1312_1.delta0,
     phi: parsedParams['phi_deg'] || PRESET_1312_1.phi,
     eta_s: parsedParams['eta_s'] || PRESET_1312_1.eta_s,
-    grid: { ...PRESET_1312_1.grid },
+    grid: {
+      mode: 'adaptive',
+      xMin: -800,
+      xMax: 800,
+      xStep: 20,
+      yMin: -800,
+      yMax: 800,
+      yStep: 20,
+      simpsonSubintervals: 2048,
+      subsidenceThreshold: 0.01,
+    },
+  };
+
+  // 严格重置网格：根据导入工程的实际参数自动计算自适应网格范围，禁止继承旧工程手动网格
+  const derived = calculateDerivedParams(rawInputs);
+  const adaptiveGrid = calculateAdaptiveGridConfig(rawInputs, derived);
+  const inputs: ModelInputs = {
+    ...rawInputs,
+    grid: adaptiveGrid,
   };
 
   const valid = errors.length === 0;

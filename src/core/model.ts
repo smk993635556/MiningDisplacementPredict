@@ -3,6 +3,7 @@ import {
   DerivedParams,
   ValidationResult,
   GridConfig,
+  GridCoverageCheck,
   CalculationGridResult,
   MeasuredPoint,
   ErrorMetrics,
@@ -82,6 +83,106 @@ export function calculateDerivedParams(p: ModelInputs): DerivedParams {
   const Mf = (Lq + 2 * p.L_PKS) / 2;
 
   return { wPKS, Lz, Lq, Df, Mf, r };
+}
+
+/**
+ * 自动自适应计算网格范围计算器:
+ * 根据采动几何与主关键层主要影响半径 r，严格确保网格覆盖沉陷影响区：
+ * xMin <= -(Df + 3r), xMax >= Df + 3r
+ * yMin <= -(Mf + 3r), yMax >= Mf + 3r
+ */
+export function calculateAdaptiveGridConfig(
+  inputs: ModelInputs,
+  derived: DerivedParams,
+  options?: Partial<GridConfig>
+): GridConfig {
+  const effectiveR = derived.r > 10 ? derived.r : 200;
+  const effectiveDf = Math.max(derived.Df, inputs.d / 2, 50);
+  const effectiveMf = Math.max(derived.Mf, inputs.m / 2, 50);
+
+  // 严格按规范要求：走向至少覆盖 ±(Df + 3r)，倾向至少覆盖 ±(Mf + 3r)
+  const reqHalfX = effectiveDf + 3.0 * effectiveR;
+  const reqHalfY = effectiveMf + 3.0 * effectiveR;
+
+  // 向上圆整至50m倍数，获得规整对称网格
+  const halfX = Math.max(Math.ceil(reqHalfX / 50) * 50, 100);
+  const halfY = Math.max(Math.ceil(reqHalfY / 50) * 50, 100);
+
+  // 自适应步长控制（确保计算耗时与精度的工程平衡）
+  let defaultStepX = 20;
+  if (halfX > 2000) defaultStepX = 50;
+  else if (halfX > 1200) defaultStepX = 25;
+
+  let defaultStepY = 20;
+  if (halfY > 2000) defaultStepY = 50;
+  else if (halfY > 1200) defaultStepY = 25;
+
+  return {
+    mode: 'adaptive',
+    xMin: -halfX,
+    xMax: halfX,
+    xStep: options?.xStep && options.xStep > 0 ? options.xStep : defaultStepX,
+    yMin: -halfY,
+    yMax: halfY,
+    yStep: options?.yStep && options.yStep > 0 ? options.yStep : defaultStepY,
+    simpsonSubintervals: options?.simpsonSubintervals ?? 2048,
+    subsidenceThreshold: options?.subsidenceThreshold ?? 0.01,
+  };
+}
+
+/**
+ * 检查当前网格是否完整覆盖沉陷影响范围：
+ * 规范条件：
+ * xMin <= -(Df + 3r)
+ * xMax >= Df + 3r
+ * yMin <= -(Mf + 3r)
+ * yMax >= Mf + 3r
+ */
+export function checkGridCoverage(
+  grid: GridConfig,
+  derived: DerivedParams
+): GridCoverageCheck {
+  if (derived.r <= 0 || derived.Df <= 0 || derived.Mf <= 0) {
+    return {
+      isCovered: true,
+      requiredXMin: grid.xMin,
+      requiredXMax: grid.xMax,
+      requiredYMin: grid.yMin,
+      requiredYMax: grid.yMax,
+      deficitX: false,
+      deficitY: false,
+    };
+  }
+
+  const reqHalfX = derived.Df + 3 * derived.r;
+  const reqHalfY = derived.Mf + 3 * derived.r;
+  const requiredXMin = -Math.round(reqHalfX * 10) / 10;
+  const requiredXMax = Math.round(reqHalfX * 10) / 10;
+  const requiredYMin = -Math.round(reqHalfY * 10) / 10;
+  const requiredYMax = Math.round(reqHalfY * 10) / 10;
+
+  // 允许0.01m数值容差
+  const deficitXMin = grid.xMin > requiredXMin + 0.01;
+  const deficitXMax = grid.xMax < requiredXMax - 0.01;
+  const deficitYMin = grid.yMin > requiredYMin + 0.01;
+  const deficitYMax = grid.yMax < requiredYMax - 0.01;
+
+  const deficitX = deficitXMin || deficitXMax;
+  const deficitY = deficitYMin || deficitYMax;
+  const isCovered = !deficitX && !deficitY;
+
+  return {
+    isCovered,
+    requiredXMin,
+    requiredXMax,
+    requiredYMin,
+    requiredYMax,
+    deficitX,
+    deficitY,
+    message: isCovered
+      ? undefined
+      : `当前计算网格未覆盖本工程沉陷影响范围，是否恢复自适应网格？（沉陷影响边界要求走向至少 [${requiredXMin}m, ${requiredXMax}m]，倾向至少 [${requiredYMin}m, ${requiredYMax}m]）`,
+  };
 }
 
 /**

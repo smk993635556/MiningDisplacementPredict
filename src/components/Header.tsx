@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Layers,
   RotateCcw,
@@ -8,14 +8,17 @@ import {
   FileText,
   HelpCircle,
   Sliders,
+  ChevronDown,
+  FolderSync,
 } from 'lucide-react';
-import { ModelInputs, StratumLayer, MeasuredPoint } from '../types.ts';
+import { ModelInputs, StratumLayer, MeasuredPoint, ENGINEERING_PRESETS } from '../types.ts';
 import { exportProjectToExcel } from '../core/excelProjectService.ts';
 
 interface HeaderProps {
   projectName: string;
   setProjectName: (name: string) => void;
   onResetPreset: () => void;
+  onSelectPreset?: (presetId: string) => void;
   onClearInputs: () => void;
   onOpenAdvanced: () => void;
   onOpenHelp: () => void;
@@ -31,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   projectName,
   setProjectName,
   onResetPreset,
+  onSelectPreset,
   onClearInputs,
   onOpenAdvanced,
   onOpenHelp,
@@ -41,6 +45,18 @@ export const Header: React.FC<HeaderProps> = ({
   currentView,
   onViewChange,
 }) => {
+  const [showPresetMenu, setShowPresetMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowPresetMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const handleExportProjectExcel = () => {
     exportProjectToExcel({
       projectName: projectName || '未命名工程',
@@ -116,17 +132,60 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          {/* Load Sample Parameters */}
-          <button
-            type="button"
-            onClick={onResetPreset}
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-blue-50/80 border border-slate-200 rounded-md transition-colors flex items-center gap-1.5"
-            title="载入一组通用标准示例数据"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-            <span className="hidden sm:inline">载入示例参数</span>
-            <span className="sm:hidden">示例</span>
-          </button>
+          {/* Load Sample Parameters / Presets Dropdown */}
+          <div className="relative" ref={menuRef}>
+            <div className="inline-flex rounded-md shadow-2xs">
+              <button
+                type="button"
+                onClick={onResetPreset}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-blue-50/80 border border-slate-200 rounded-l-md transition-colors flex items-center gap-1.5"
+                title="载入标准算例 (1312-1综采面)"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                <span className="hidden sm:inline">载入示例工程</span>
+                <span className="sm:hidden">示例</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPresetMenu((prev) => !prev)}
+                className="px-1.5 py-1.5 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-blue-50/80 border-t border-b border-r border-slate-200 rounded-r-md transition-colors flex items-center"
+                title="切换更多典型工程算例"
+              >
+                <ChevronDown className="w-3 h-3 text-slate-500" />
+              </button>
+            </div>
+
+            {showPresetMenu && (
+              <div className="absolute right-0 mt-1.5 w-72 bg-white rounded-lg shadow-lg border border-slate-200 py-1.5 z-50 text-xs animate-in fade-in duration-100">
+                <div className="px-3 py-1 text-[11px] font-bold text-slate-400 border-b border-slate-100 mb-1">
+                  选择工程算例 (切换将彻底重置网格与实测数据)
+                </div>
+                {ENGINEERING_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => {
+                      setShowPresetMenu(false);
+                      if (onSelectPreset) {
+                        onSelectPreset(preset.id);
+                      } else {
+                        onResetPreset();
+                      }
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-blue-50/80 transition-colors flex flex-col gap-0.5"
+                  >
+                    <div className="font-semibold text-slate-800 flex items-center justify-between">
+                      <span>{preset.name}</span>
+                      <span className="text-[10px] text-blue-600 bg-blue-50 px-1 rounded">
+                        走向{preset.inputs.d}m×倾向{preset.inputs.m}m
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-snug">{preset.shortDesc}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Clear Inputs */}
           <button

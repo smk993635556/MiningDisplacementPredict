@@ -13,6 +13,8 @@ import {
   Calculator,
   Compass,
   FileText,
+  Play,
+  RotateCcw,
 } from 'lucide-react';
 import {
   CalculationGridResult,
@@ -33,6 +35,9 @@ interface Step3ResultsSectionProps {
   dataType: '合成测试数据' | '现场实测数据';
   datasetName: string;
   measuredDataMeta?: MeasuredDataMeta | null;
+  isComputing?: boolean;
+  onCompute?: () => void;
+  onResetAdaptiveGrid?: () => void;
   onUpdatePoints: (
     points: MeasuredPoint[],
     type: '合成测试数据' | '现场实测数据',
@@ -52,6 +57,9 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
   dataType,
   datasetName,
   measuredDataMeta,
+  isComputing = false,
+  onCompute,
+  onResetAdaptiveGrid,
   onUpdatePoints,
   onDeleteMeasuredData,
   onOpenDetails,
@@ -61,10 +69,11 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
   const [contourInterval, setContourInterval] = useState<number>(0.1);
   const [showMeasuredOverlay, setShowMeasuredOverlay] = useState<boolean>(true);
 
-  // Profiles (Strike y=0, Dip x=0)
+  // Profiles (Strike y=0, Dip x=0) - strictly tied to valid gridResult (Requirement 1 & 7)
   const profiles = useMemo(() => {
+    if (!gridResult) return null;
     return computeCenterProfiles(inputs, derived, inputs.grid);
-  }, [inputs, derived]);
+  }, [inputs, derived, gridResult]);
 
   // Measured points categorized by section
   const strikeMeasured = useMemo(() => {
@@ -160,19 +169,74 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
   if (!gridResult || !gridResult.xs || !gridResult.ys || !gridResult.surfaceW) {
     return (
       <section className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
-            3
+        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+              3
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">第三步：查看预计结果</h2>
+              <p className="text-[11px] text-slate-500">
+                严格以本工程物理参数与求解网格重新计算，不沿用上一工程历史结果
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">第三步：查看预计结果</h2>
-            <p className="text-[11px] text-slate-500">
-              请在第二步点击“开始预计”按钮，计算完成后在此查看沉降指标与可视化分析
-            </p>
+          <div className="text-[11px] text-slate-500 font-mono">
+            网格模式: {inputs.grid.mode === 'manual' ? '🛠️ 手动网格' : '⚡ 自动自适应'}
           </div>
         </div>
-        <div className="p-12 text-center text-slate-400 text-xs">
-          暂无计算结果。请在上方输入参数并点击“开始预计”。
+
+        <div className="p-10 flex flex-col items-center justify-center text-center space-y-4">
+          {isComputing ? (
+            <div className="space-y-3 py-4">
+              <div className="w-10 h-10 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  正在为【{projectName || inputs.caseName || '当前工程'}】执行二重积分数值预计...
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  正在网格 [x: {inputs.grid.xMin}~{inputs.grid.xMax}m, y: {inputs.grid.yMin}~{inputs.grid.yMax}m] 上求解复合 Simpson 积分
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 max-w-md">
+              <div className="w-12 h-12 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 mx-auto">
+                <Play className="w-6 h-6 ml-0.5 fill-current" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  当前工程暂无生效计算结果
+                </h3>
+                <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                  系统已严格重置上一工程的网格与断面数据，杜绝数据继承与曲线平滑伪造。请启动预计以生成当前工程的沉陷云图、主断面曲线与3D沉陷盆地。
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                {onCompute && (
+                  <button
+                    type="button"
+                    onClick={onCompute}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors flex items-center gap-1.5"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>立即开始预计 (计算当前工程)</span>
+                  </button>
+                )}
+                {onResetAdaptiveGrid && (
+                  <button
+                    type="button"
+                    onClick={onResetAdaptiveGrid}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>恢复自适应网格</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </section>
     );
@@ -405,6 +469,25 @@ export const Step3ResultsSection: React.FC<Step3ResultsSectionProps> = ({
       </div>
 
       <div className="p-5 space-y-5">
+        {/* Active Project & Grid Info Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-800">【{projectName || inputs.caseName || '当前工程'}】求解结果</span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${
+              inputs.grid.mode === 'manual'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            }`}>
+              {inputs.grid.mode === 'manual' ? '🛠️ 手动网格模式' : '⚡ 自动自适应网格'}
+            </span>
+          </div>
+          <div className="text-[11px] text-slate-500 font-mono flex flex-wrap items-center gap-3">
+            <span>走向: [{gridResult.xs[0]}m ~ {gridResult.xs[gridResult.xs.length - 1]}m] (点数: {gridResult.xs.length})</span>
+            <span>倾向: [{gridResult.ys[0]}m ~ {gridResult.ys[gridResult.ys.length - 1]}m] (点数: {gridResult.ys.length})</span>
+            <span>Simpson: {inputs.grid.simpsonSubintervals}等分</span>
+          </div>
+        </div>
+
         {/* 3 Core Result Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {/* Card 1: Max Subsidence */}

@@ -16,6 +16,7 @@ interface ParameterPanelProps {
   onChange: (inputs: ModelInputs) => void;
   validation: ValidationResult;
   onResetPreset: () => void;
+  onResetAdaptiveGrid?: () => void;
   onOpenStratum: () => void;
   stratumCount: number;
 }
@@ -25,6 +26,7 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
   onChange,
   validation,
   onResetPreset,
+  onResetAdaptiveGrid,
   onOpenStratum,
   stratumCount,
 }) => {
@@ -430,16 +432,72 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
 
           {openGroups.grid && (
             <div className="px-3.5 pb-3 pt-1 space-y-2.5 bg-white">
+              {/* Grid Mode Switcher */}
+              <div className="flex items-center justify-between gap-1 pb-1 border-b border-slate-100">
+                <div className="inline-flex bg-slate-100 p-0.5 rounded border border-slate-200 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onResetAdaptiveGrid) {
+                        onResetAdaptiveGrid();
+                      } else {
+                        updateGridField('mode', 'adaptive');
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                      inputs.grid.mode !== 'manual'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ⚡ 自适应模式
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateGridField('mode', 'manual')}
+                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                      inputs.grid.mode === 'manual'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    🛠️ 手动模式
+                  </button>
+                </div>
+
+                {onResetAdaptiveGrid && (
+                  <button
+                    type="button"
+                    onClick={onResetAdaptiveGrid}
+                    className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5"
+                    title="重新计算自适应网格范围"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                    <span>恢复自适应</span>
+                  </button>
+                )}
+              </div>
+
               {/* x range */}
               <div>
-                <span className="text-[11px] font-medium text-slate-600 block mb-1">走向范围 x (m)</span>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-600">走向范围 x (m)</span>
+                  {inputs.grid.mode !== 'manual' && (
+                    <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded">自适应</span>
+                  )}
+                </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   <div>
                     <span className="text-[10px] text-slate-400">Min</span>
                     <input
                       type="number"
                       value={inputs.grid.xMin}
-                      onChange={(e) => updateGridField('xMin', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => {
+                        onChange({
+                          ...inputs,
+                          grid: { ...inputs.grid, xMin: parseFloat(e.target.value) || 0, mode: 'manual' },
+                        });
+                      }}
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"
                     />
                   </div>
@@ -448,7 +506,12 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
                     <input
                       type="number"
                       value={inputs.grid.xMax}
-                      onChange={(e) => updateGridField('xMax', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => {
+                        onChange({
+                          ...inputs,
+                          grid: { ...inputs.grid, xMax: parseFloat(e.target.value) || 0, mode: 'manual' },
+                        });
+                      }}
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"
                     />
                   </div>
@@ -459,7 +522,12 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
                       step="5"
                       min="5"
                       value={inputs.grid.xStep}
-                      onChange={(e) => updateGridField('xStep', parseFloat(e.target.value) || 10)}
+                      onChange={(e) => {
+                        onChange({
+                          ...inputs,
+                          grid: { ...inputs.grid, xStep: parseFloat(e.target.value) || 10, mode: 'manual' },
+                        });
+                      }}
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"
                     />
                   </div>
@@ -468,14 +536,24 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
 
               {/* y range */}
               <div>
-                <span className="text-[11px] font-medium text-slate-600 block mb-1">倾向范围 y (m)</span>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-600">倾向范围 y (m)</span>
+                  {inputs.grid.mode !== 'manual' && (
+                    <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded">自适应</span>
+                  )}
+                </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   <div>
                     <span className="text-[10px] text-slate-400">Min</span>
                     <input
                       type="number"
                       value={inputs.grid.yMin}
-                      onChange={(e) => updateGridField('yMin', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => {
+                        onChange({
+                          ...inputs,
+                          grid: { ...inputs.grid, yMin: parseFloat(e.target.value) || 0, mode: 'manual' },
+                        });
+                      }}
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"
                     />
                   </div>
@@ -484,7 +562,12 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
                     <input
                       type="number"
                       value={inputs.grid.yMax}
-                      onChange={(e) => updateGridField('yMax', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => {
+                        onChange({
+                          ...inputs,
+                          grid: { ...inputs.grid, yMax: parseFloat(e.target.value) || 0, mode: 'manual' },
+                        });
+                      }}
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"
                     />
                   </div>
@@ -495,7 +578,12 @@ export const ParameterPanel: React.FC<ParameterPanelProps> = ({
                       step="5"
                       min="5"
                       value={inputs.grid.yStep}
-                      onChange={(e) => updateGridField('yStep', parseFloat(e.target.value) || 10)}
+                      onChange={(e) => {
+                        onChange({
+                          ...inputs,
+                          grid: { ...inputs.grid, yStep: parseFloat(e.target.value) || 10, mode: 'manual' },
+                        });
+                      }}
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"
                     />
                   </div>
